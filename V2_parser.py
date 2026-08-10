@@ -249,7 +249,7 @@ def convert_file_to_csv(filepath):
 
 
     def parse_clf(filepath: str) -> pd.DataFrame:
-        print(f"Reading {filepath} ...")
+        #print(f"Reading {filepath} ...")
         with open(filepath, 'rb') as f:
             raw_bytes = f.read()
 
@@ -257,8 +257,8 @@ def convert_file_to_csv(filepath):
         payload_bytes = total_bytes - HEADER_SIZE
         n_records = payload_bytes // RECORD_SIZE
 
-        print(f"  File size : {total_bytes:,} bytes")
-        print(f"  Records   : {n_records:,}")
+        #print(f"  File size : {total_bytes:,} bytes")
+        #print(f"  Records   : {n_records:,}")
 
         # Parse all records in one vectorised pass
         records = np.frombuffer(
@@ -287,7 +287,7 @@ def convert_file_to_csv(filepath):
         last_emitted   = None   # snapshot of state at the last emitted row
         rows           = []
 
-        print("Parsing records ...")
+        #print("Parsing records ...")
         for tag, val in zip(tags, vals):
             tag = int(tag)
             val = int(val)
@@ -319,7 +319,7 @@ def convert_file_to_csv(filepath):
             row.update(state)
             rows.append(row)
 
-        print(f"  Output rows: {len(rows):,}")
+        #print(f"  Output rows: {len(rows):,}")
 
         df = pd.DataFrame(rows)
 
@@ -338,13 +338,13 @@ def convert_file_to_csv(filepath):
         out_file = sys.argv[2] if len(sys.argv) > 2 else OUTPUT_FILE
 
         if not os.path.isfile(in_file):
-            print(f"ERROR: input file not found: {in_file}")
+            #print(f"ERROR: input file not found: {in_file}")
             sys.exit(1)
 
         df = parse_clf(in_file)
         df.to_csv(out_file, index=False)
-        print(f"\nSaved → {out_file}")
-        print(f"Rows: {len(df):,}   Columns: {len(df.columns)}")
+        #print(f"\nSaved → {out_file}")
+        #print(f"Rows: {len(df):,}   Columns: {len(df.columns)}")
         #print()
         #print(df.head(3).to_string())
 
