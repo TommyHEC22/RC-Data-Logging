@@ -100,7 +100,7 @@ def show_analysis():
         times = np.array(list(lappur.values()))
         slope, intercept = np.polyfit(laps, times, 1)
 
-        threshold = 0.1
+        threshold = 0.05
         if slope < -threshold:
             trend = "Improving"
         elif slope > threshold:
