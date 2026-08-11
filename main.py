@@ -108,9 +108,52 @@ def show_analysis():
         else:
             trend = "Consistent"
 
-        print(f"Slope: {slope:.4f}, Intercept: {intercept:.4f}, Trend: {trend}")
-
         return trend
+
+    valid_laps = sorted(df['Lap'].unique())[1:-1]
+    df_laps = df[df['Lap'].isin(valid_laps)]
+
+    def yaw_balance(gyro_yaw, accel_y_g, w=15):   # bigger number is more rotation
+        yaw = np.convolve(np.asarray(gyro_yaw, float), np.ones(w)/w, 'same')   # deg/s
+        ay  = np.convolve(np.asarray(accel_y_g, float), np.ones(w)/w, 'same')  # g
+
+        # both signed the same way in a turn — no fold needed
+        mask = np.abs(ay) > 0.2        # committed cornering only
+        x, y = ay[mask], yaw[mask]
+
+        slope, intercept = np.polyfit(x, y, 1)
+
+        return slope
+
+    def cornering_grip(accel_y_g, speed_kmh=None, w=15):
+        """Overall lateral grip / constant-cornering ability.
+        Higher = more grip (car holds more lateral g)."""
+        ay = np.convolve(np.abs(np.asarray(accel_y_g, float)), np.ones(w)/w, 'same')
+
+        mask = ay > 0.2                       # cornering only, drop straights
+        if speed_kmh is not None:
+            mask &= np.asarray(speed_kmh) > 5
+        ay = ay[mask]
+
+        return np.percentile(ay, 90)          # the lateral-g ceiling you sustain
+
+
+    def exit_drive(accel_x_g, throttle_us, throttle_centre, accel_y_g, w=15):
+        """Flat-out rear-end straight-line corner-exit drive.
+        Higher = more forward grip put down on exit."""
+        ax  = np.convolve(np.abs(np.asarray(accel_x_g, float)), np.ones(w)/w, 'same')
+        thr = np.asarray(throttle_us, float) - throttle_centre
+
+        mask = (thr > 0) & (np.abs(np.asarray(accel_y_g)) < 0.6)   # on power, exit-ish
+        ax = ax[mask]
+
+        return np.percentile(ax, 90)          # forward-g ceiling on drive
+
+    throttle_centre = np.median(df_laps['Throttle and brake'])
+
+    balance = yaw_balance(df_laps['Gyro Yaw'], df_laps['Acceleration Y'])
+    corner = cornering_grip(df_laps['Acceleration Y'], df_laps['Speed all'])
+    drive  = exit_drive(df_laps['Acceleration X'], df_laps['Throttle and brake'],throttle_centre, df_laps['Acceleration Y'])
 
     tk.Label(root, text=f"Fastest Lap: {fastest_lap:.2f}s").pack(pady=10)
     tk.Label(root, text=f"Average Lap: {average_lap:.2f}s").pack(pady=10)
@@ -119,6 +162,9 @@ def show_analysis():
     tk.Label(root, text=f"Best 2 Consecutive Laps: {top_two_consecutive:.2f}s").pack(pady=10)
     tk.Label(root, text=f"Number of Bad Laps: {num_bobble_laps}").pack(pady=10)
     tk.Label(root, text=f"Trend: {get_trend(laptimes)}").pack(pady=10)
+    tk.Label(root, text=f"Balance: {balance:.4f}").pack(pady=10)
+    tk.Label(root, text=f"Cornering Grip: {corner:.4f}g").pack(pady=10)
+    tk.Label(root, text=f"Exit Drive: {drive:.4f}g").pack(pady=10)
 
 
 show_loader()
