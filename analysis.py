@@ -34,8 +34,6 @@ def show_analysis(root, df, show_steeringthrottle_graph):
     laptimes = get_laptimes_dictionary(df)
 
     lines = "\n".join(f"Lap {lap}: {t:.2f}s" for lap, t in laptimes.items())
-    tk.Label(root, text=lines, justify="left").pack(padx=20, pady=20)
-
 
     fastest_lap = min(laptimes.values())
     average_lap = sum(laptimes.values()) / len(laptimes)
@@ -124,14 +122,68 @@ def show_analysis(root, df, show_steeringthrottle_graph):
     corner = cornering_grip(df_laps['Acceleration Y'], df_laps['Speed all'])
     drive  = exit_drive(df_laps['Acceleration X'], df_laps['Throttle and brake'],throttle_centre, df_laps['Acceleration Y'])
 
-    tk.Label(root, text=f"Fastest Lap: {fastest_lap:.2f}s").pack(pady=10)
-    tk.Label(root, text=f"Average Lap: {average_lap:.2f}s").pack(pady=10)
-    tk.Label(root, text=f"Top 3 Average: {top_three_average:.2f}s").pack(pady=10)
-    tk.Label(root, text=f"Top 5 Average: {top_five_average:.2f}s").pack(pady=10)
-    tk.Label(root, text=f"Best 2 Consecutive Laps: {top_two_consecutive:.2f}s").pack(pady=10)
-    tk.Label(root, text=f"Number of Bad Laps: {num_bobble_laps}").pack(pady=10)
-    tk.Label(root, text=f"Trend: {get_trend(laptimes)}").pack(pady=10)
-    tk.Label(root, text=f"Balance: {balance:.4f}").pack(pady=10)
-    tk.Label(root, text=f"Cornering Grip: {corner:.4f}g").pack(pady=10)
-    tk.Label(root, text=f"Exit Drive: {drive:.4f}g").pack(pady=10)
-    ttk.Button(root, text="Show Steering & Throttle Graph", command=lambda: show_steeringthrottle_graph(root, df, show_analysis)).pack(pady=20, ipadx=20, ipady=20)
+    container = tk.Frame(root)
+    container.pack(fill="both", expand=True)
+
+    # ── top nav bar ──────────────────────────────────────
+    navbar = tk.Frame(container, bg="#1e1e1e", height=52)
+    navbar.pack(side="top", fill="x")
+    navbar.pack_propagate(False)          # keep the 52px height
+
+    def navbtn(text, cmd):
+        tk.Button(navbar, text=text, command=cmd,
+                  bg="#2d2d2d", fg="white",
+                  activebackground="#3d3d3d", activeforeground="white",
+                  relief="flat", bd=0, font=("Segoe UI", 11),
+                  padx=18, pady=6, cursor="hand2"
+                  ).pack(side="left", padx=(12, 0), pady=8)
+
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis))
+
+    # ── body ─────────────────────────────────────────────
+    body = tk.Frame(container)
+    body.pack(side="top", fill="both", expand=True, padx=20, pady=20)
+
+    # laptimes bar (left)
+    laptimes_box = tk.LabelFrame(body, text="Lap Times",
+                                 font=("Segoe UI", 12, "bold"), padx=10, pady=6)
+    laptimes_box.pack(side="left", fill="y", padx=(0, 20))
+
+    for lap, t in laptimes.items():
+        tk.Label(laptimes_box, text=f"Lap {lap}: {t:.2f}s",
+                 font=("Segoe UI", 11)).pack(anchor="w", padx=10, pady=3)
+
+    # stats cards (middle)
+    stats_area = tk.Frame(body)
+    stats_area.pack(side="left", fill="both", expand=True)
+
+    def stat_card(title, value, r, c):
+        card = tk.Frame(stats_area, bg="white",
+                        highlightbackground="#dcdcdc", highlightthickness=1, bd=0)
+        card.grid(row=r, column=c, padx=8, pady=8, sticky="nsew")
+        tk.Label(card, text=title, font=("Segoe UI", 10), fg="#777",
+                 bg="white").pack(anchor="w", padx=14, pady=(12, 2))
+        tk.Label(card, text=value, font=("Segoe UI", 22, "bold"),
+                 bg="white").pack(anchor="w", padx=14, pady=(0, 12))
+
+    stats = [
+        ("Fastest Lap",        f"{fastest_lap:.2f}s"),
+        ("Average Lap",        f"{average_lap:.2f}s"),
+        ("Top 3 Average",      f"{top_three_average:.2f}s"),
+        ("Top 5 Average",      f"{top_five_average:.2f}s"),
+        ("Best 2 Consecutive", f"{top_two_consecutive:.2f}s"),
+        ("Bad Laps",           f"{num_bobble_laps}"),
+        ("Trend",              get_trend(laptimes)),
+        ("Balance",            f"{balance:.4f}"),
+        ("Cornering Grip",     f"{corner:.4f}g"),
+        ("Exit Drive",         f"{drive:.4f}g"),
+    ]
+
+    COLS = 5
+    for i, (title, value) in enumerate(stats):
+        stat_card(title, value, i // COLS, i % COLS)
+
+    # equal-width columns; NO row weights so cards sit at the top
+    for c in range(COLS):
+        stats_area.columnconfigure(c, weight=1, uniform="stat")

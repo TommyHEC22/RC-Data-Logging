@@ -36,7 +36,7 @@ def quickload_old_data():
         file = easygui.fileopenbox()
         df = pd.read_csv(file)
         print("Loaded" if len(df) > 100 else "Under 100 rows")
-        show_analysis(root, df, show_steeringthrottle_graph)          # swap to the next screen
+        show_analysis(root, df, show_steeringthrottle_graph)
     except Exception as e:
         print("Error loading file:", e)
 
@@ -46,7 +46,7 @@ def load_new_data():
         file = easygui.fileopenbox()
         df = pd.read_csv(convert_file_to_csv(file))
         print("Loaded" if len(df) > 100 else "Under 100 rows")
-        show_analysis(root, df, show_steeringthrottle_graph)          # swap to the next screen
+        show_analysis(root, df, show_steeringthrottle_graph)
     except Exception as e:
         print("Error loading file:", e)
 

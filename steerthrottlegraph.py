@@ -30,7 +30,7 @@ def show_steeringthrottle_graph(root, df, show_analysis):
     laptimes = get_laptimes_dictionary(df)
     lap_labels = {f"Lap {l} — {laptimes[l]:.2f}s": l for l in valid_laps}
 
-    COLOURS = ['#0077CC', '#FF6B35', '#2E8B00', '#CC1155', '#B8860B', '#000000']
+    COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
     def smooth(data, w):
         w = int(w)
