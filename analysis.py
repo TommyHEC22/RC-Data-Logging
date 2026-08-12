@@ -4,7 +4,8 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
 
-def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms):
+def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader):
+    root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
 
@@ -146,11 +147,12 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
                   padx=18, pady=6, cursor="hand2"
                   ).pack(side="left", padx=(12, 0), pady=8)
 
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces))
+    navbtn("Load Data", lambda: show_loader())
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader))
 
     body = tk.Frame(container)
     body.pack(side="top", fill="both", expand=True, padx=20, pady=20)
