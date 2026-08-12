@@ -7,7 +7,7 @@ OUTPUT = "df2.csv"          # overwritten on every load; read this in your other
 
 
 def show_load_df2(root, df, show_analysis, show_steeringthrottle_graph,
-                  show_friction_circle, show_gforces, show_histograms, show_loader):
+                  show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
@@ -29,12 +29,13 @@ def show_load_df2(root, df, show_analysis, show_steeringthrottle_graph,
                   ).pack(side="left", padx=(12, 0), pady=8)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run))
+    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
 
     # ── centred load area ────────────────────────────────
     body = tk.Frame(outer)
@@ -52,9 +53,29 @@ def show_load_df2(root, df, show_analysis, show_steeringthrottle_graph,
     def load_csv():
         try:
             file = easygui.fileopenbox()
+            def read_comment(file_path):
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+
+                            if line.startswith("#"):
+                                return line[1:].strip()
+
+                            if line:
+                                break
+
+                    return ""
+
+                except Exception as e:
+                    print("Error reading comment:", e)
+                    return ""
+            comment = read_comment(file)
+            with open("comment.txt", "w", encoding="utf-8") as f:
+                f.write(comment)
             if not file:
                 return
-            data = pd.read_csv(file)
+            data = pd.read_csv(file, comment="#")          # ignore comment lines starting with #
             data.to_csv(OUTPUT, index=False)          # overwrites the previous df2.csv
             status.config(text="Comparison run loaded successfully", fg="#1a7f37")
             print("df2 saved to", os.path.abspath(OUTPUT), f"({len(data)} rows)")
