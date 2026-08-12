@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader):
+def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
@@ -33,6 +33,12 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
 
     COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
+    def smooth(data, w):
+        w = int(w)
+        if w <= 1:
+            return np.asarray(data, float)
+        return np.convolve(np.asarray(data, float), np.ones(w) / w, mode='same')
+
     outer = tk.Frame(root)
     outer.pack(fill="both", expand=True)
 
@@ -50,11 +56,12 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
                   ).pack(side="left", padx=(12, 0), pady=8)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2))
 
     container = tk.Frame(outer)
     container.pack(fill="both", expand=True)
@@ -103,6 +110,11 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
                     command=lambda v: draw())
     size.set(3); size.pack(fill="x")
 
+    smoothing = tk.Scale(opts, from_=1, to=51, resolution=2,
+                         orient="horizontal", label="Smoothing",
+                         command=lambda v: draw())
+    smoothing.set(15); smoothing.pack(fill="x")     # matches the analysis metrics' window
+
     show_rings = tk.BooleanVar(value=True)
     tk.Checkbutton(opts, text="Reference circles", variable=show_rings,
                    command=lambda: draw()).pack(anchor="w")
@@ -126,8 +138,10 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
             sub = df[df['Lap'].isin(valid_laps)]
         else:
             sub = df[df['Lap'] == lap]
-        # x = lateral (Y), y = longitudinal (X)
-        return sub['Acceleration Y'].values, sub['Acceleration X'].values
+        # x = lateral (Y), y = longitudinal (X) — smoothed to strip vibration
+        w = smoothing.get()
+        return (smooth(sub['Acceleration Y'].values, w),
+                smooth(sub['Acceleration X'].values, w))
 
     def draw():
         xlim, ylim = ax.get_xlim(), ax.get_ylim()

@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader):
+def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
@@ -39,6 +39,13 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
             return data
         return np.convolve(data, np.ones(w) / w, mode='same')
 
+    # channel key → (label, column, default colour, default on?, on secondary axis?)
+    CHANNELS = (
+        ('steer', "Steering",  'Steering',           COLOURS[0], True,  False),
+        ('thr',   "Throttle",  'Throttle and brake', COLOURS[1], True,  False),
+        ('yaw',   "Yaw rate",  'Gyro Yaw',           COLOURS[4], False, True),
+    )
+
     outer = tk.Frame(root)
     outer.pack(fill="both", expand=True)
 
@@ -56,11 +63,12 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
                   ).pack(side="left", padx=(12, 0), pady=8)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2))
 
     container = tk.Frame(outer)
     container.pack(fill="both", expand=True)
@@ -76,12 +84,11 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
 
         c = {'lap_var': lap_var}
 
-        for name, default_col in (('steer', COLOURS[0]), ('thr', COLOURS[1])):
-            block = tk.LabelFrame(frame,
-                                  text="Steering" if name == 'steer' else "Throttle")
+        for name, label, _col_name, default_col, default_on, _sec in CHANNELS:
+            block = tk.LabelFrame(frame, text=label)
             block.pack(padx=8, pady=6, fill="x")
 
-            on = tk.BooleanVar(value=True)
+            on = tk.BooleanVar(value=default_on)
             tk.Checkbutton(block, text="Show", variable=on,
                            command=lambda: draw()).pack(anchor="w")
 
@@ -98,7 +105,7 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
             width = tk.Scale(block, from_=0.5, to=6, resolution=0.5,
                              orient="horizontal", label="Thickness",
                              command=lambda v: draw())
-            width.set(1.5); width.pack(fill="x")
+            width.set(1); width.pack(fill="x")
 
             sm = tk.Scale(block, from_=1, to=101, resolution=2,
                           orient="horizontal", label="Smoothing",
@@ -118,13 +125,15 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
     # default lap 2 to distinct colours so the two laps don't clash
     right['steer']['col'].set(COLOURS[2])
     right['thr']['col'].set(COLOURS[3])
+    right['yaw']['col'].set(COLOURS[5])
 
     # ── figure in the middle (with zoom toolbar) ─────────────
     graph_frame = tk.Frame(container)
     graph_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
     fig = Figure(figsize=(9, 5), dpi=100)
-    ax = fig.add_subplot(111)
+    ax = fig.add_subplot(111)          # left axis: steering / throttle (µs)
+    ax2 = ax.twinx()                   # right axis: yaw rate (deg/s)
     canvas = FigureCanvasTkAgg(fig, master=graph_frame)
     canvas.get_tk_widget().pack(side="top", fill="both", expand=True)
 
@@ -139,8 +148,8 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
         had_data = ax.has_data()
 
         ax.clear()
+        ax2.clear()
 
-        any_line = False
         for ctrl, tag in ((left, "L1"), (right, "L2")):
             lap = lap_labels.get(ctrl['lap_var'].get())
             if lap is None:
@@ -148,22 +157,26 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
             lap_df = df[df['Lap'] == lap].reset_index(drop=True)
             x = np.arange(len(lap_df)) * 0.01
 
-            if ctrl['steer']['on'].get():
-                y = smooth(lap_df['Steering'].values, ctrl['steer']['sm'].get())
-                ax.plot(x, y, color=ctrl['steer']['col'].get(),
-                        linewidth=ctrl['steer']['w'].get(), label=f"{tag} Steering")
-                any_line = True
-
-            if ctrl['thr']['on'].get():
-                y = smooth(lap_df['Throttle and brake'].values, ctrl['thr']['sm'].get())
-                ax.plot(x, y, color=ctrl['thr']['col'].get(),
-                        linewidth=ctrl['thr']['w'].get(), label=f"{tag} Throttle")
-                any_line = True
+            for name, label, col_name, _dc, _do, secondary in CHANNELS:
+                if not ctrl[name]['on'].get():
+                    continue
+                y = smooth(lap_df[col_name].values, ctrl[name]['sm'].get())
+                target = ax2 if secondary else ax
+                target.plot(x, y, color=ctrl[name]['col'].get(),
+                            linewidth=ctrl[name]['w'].get(),
+                            linestyle="-" if secondary else "-",
+                            label=f"{tag} {label}")
 
         ax.set_xlabel("Time (s)")
-        if any_line:
-            ax.legend(loc="upper right")
+        ax.set_ylabel("Steering / Throttle (µs)")
+        ax2.set_ylabel("Yaw rate (deg/s)")
         ax.grid(alpha=0.3)
+
+        # one combined legend across both axes
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        if h1 or h2:
+            ax.legend(h1 + h2, l1 + l2, loc="upper right")
 
         # restore the zoom the user had, unless this is the very first draw
         if had_data:
