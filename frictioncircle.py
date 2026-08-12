@@ -1,6 +1,8 @@
+import os
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -28,8 +30,27 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
 
     df['Time'] = df.groupby('Lap').cumcount() * 0.01
     laptimes = get_laptimes_dictionary(df)
-    lap_labels = {f"Lap {l} — {laptimes[l]:.2f}s": l for l in valid_laps}
-    lap_labels = {"All laps": None, **lap_labels}          # add an all-laps option
+
+    # comparison run laps, if a df2.csv is present
+    df2 = None
+    if os.path.exists("df2.csv"):
+        try:
+            df2 = pd.read_csv("df2.csv")
+            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
+            valid_laps2 = sorted(df2['Lap'].unique())[1:-1]
+            laptimes2 = get_laptimes_dictionary(df2)
+        except Exception as e:
+            print("Could not use df2.csv:", e)
+            df2 = None
+
+    # label → (dataframe, [laps to include]); None-lap "All laps" -> full valid list
+    lap_labels = {"All laps": (df, valid_laps)}
+    for l in valid_laps:
+        lap_labels[f"Lap {l} — {laptimes[l]:.2f}s"] = (df, [l])
+    if df2 is not None:
+        lap_labels["df2 All laps"] = (df2, valid_laps2)
+        for l in valid_laps2:
+            lap_labels[f"df2 Lap {l} — {laptimes2[l]:.2f}s"] = (df2, [l])
 
     COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
@@ -134,11 +155,8 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
     toolbar.pack(side="bottom", fill="x")
 
     def points_for(ctrl):
-        lap = lap_labels.get(ctrl['lap_var'].get())
-        if lap is None:                                  # "All laps"
-            sub = df[df['Lap'].isin(valid_laps)]
-        else:
-            sub = df[df['Lap'] == lap]
+        d, laps = lap_labels[ctrl['lap_var'].get()]
+        sub = d[d['Lap'].isin(laps)]
         # x = lateral (Y), y = longitudinal (X) — smoothed to strip vibration
         w = smoothing.get()
         return (smooth(sub['Acceleration Y'].values, w),

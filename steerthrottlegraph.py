@@ -1,6 +1,8 @@
+import os
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -13,10 +15,8 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
         w.destroy()
 
     # ── lap times ────────────────────────────────────────────
-    valid_laps = sorted(df['Lap'].unique())[1:-1]
-
-    def get_laptimes_dictionary(df):
-        laps = df.groupby('Lap')
+    def get_laptimes_dictionary(d):
+        laps = d.groupby('Lap')
         laptimes = {}
         for lap in laps:
             lap_num = lap[0]
@@ -28,8 +28,20 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
         return laptimes
 
     df['Time'] = df.groupby('Lap').cumcount() * 0.01
+    valid_laps = sorted(df['Lap'].unique())[1:-1]
     laptimes = get_laptimes_dictionary(df)
-    lap_labels = {f"Lap {l} — {laptimes[l]:.2f}s": l for l in valid_laps}
+
+    # comparison run, if one has been staged as df2.csv
+    df2 = None
+    laptimes2 = {}
+    if os.path.exists("df2.csv"):
+        try:
+            df2 = pd.read_csv("df2.csv")
+            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
+            laptimes2 = get_laptimes_dictionary(df2)
+        except Exception as e:
+            print("Could not use df2.csv:", e)
+            df2 = None
 
     COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
@@ -38,6 +50,32 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
         if w <= 1:
             return data
         return np.convolve(data, np.ones(w) / w, mode='same')
+
+    def fastest_laps(lt, n=5):
+        return [lap for lap, _ in sorted(lt.items(), key=lambda kv: kv[1])[:n]]
+
+    # ── dropdown sources: label → (dataframe, [laps], average?) ──
+    sources = {}
+    for lap in valid_laps:
+        sources[f"Lap {lap} — {laptimes[lap]:.2f}s"] = (df, [lap], False)
+    sources["Top 5 Average"] = (df, fastest_laps(laptimes), True)
+    if df2 is not None:
+        for lap in sorted(laptimes2.keys()):
+            sources[f"df2 Lap {lap} — {laptimes2[lap]:.2f}s"] = (df2, [lap], False)
+        sources["df2 Top 5 Average"] = (df2, fastest_laps(laptimes2), True)
+
+    def get_series(key, col):
+        d, laps, avg = sources[key]
+        if not avg:
+            return d[d['Lap'] == laps[0]][col].to_numpy(float)
+        # average across laps, resampling each to a common length by fraction of lap
+        arrs = [d[d['Lap'] == lap][col].to_numpy(float) for lap in laps]
+        length = int(np.median([len(a) for a in arrs]))
+        xnew = np.linspace(0, 1, length)
+        acc = np.zeros(length)
+        for a in arrs:
+            acc += np.interp(xnew, np.linspace(0, 1, len(a)), a)
+        return acc / len(arrs)
 
     # channel key → (label, column, default colour, default on?, on secondary axis?)
     CHANNELS = (
@@ -70,18 +108,18 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
     navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run))
     navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run))
     navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2))
-    
+
     container = tk.Frame(outer)
     container.pack(fill="both", expand=True)
 
-    # ── one control panel per lap ────────────────────────────
-    def build_panel(parent, title):
+    # ── one control panel per trace ──────────────────────────
+    def build_panel(parent, title, default_key):
         frame = tk.Frame(parent, bd=1, relief="groove")
         tk.Label(frame, text=title, font=("Segoe UI", 12, "bold")).pack(pady=5)
 
-        lap_var = tk.StringVar(value=list(lap_labels)[0])
-        ttk.Combobox(frame, textvariable=lap_var, values=list(lap_labels.keys()),
-                     state="readonly", width=16).pack(pady=5)
+        lap_var = tk.StringVar(value=default_key)
+        ttk.Combobox(frame, textvariable=lap_var, values=list(sources.keys()),
+                     state="readonly", width=22).pack(pady=5)
 
         c = {'lap_var': lap_var}
 
@@ -117,13 +155,17 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
 
         return frame, c
 
-    left_frame, left = build_panel(container, "Lap 1")
+    # defaults: main top-5 vs df2 top-5 (if a comparison run is loaded)
+    left_default = "Top 5 Average"
+    right_default = "df2 Top 5 Average" if df2 is not None else list(sources.keys())[0]
+
+    left_frame, left = build_panel(container, "Trace 1", left_default)
     left_frame.pack(side="left", fill="y", padx=10)
 
-    right_frame, right = build_panel(container, "Lap 2")
+    right_frame, right = build_panel(container, "Trace 2", right_default)
     right_frame.pack(side="right", fill="y", padx=10)
 
-    # default lap 2 to distinct colours so the two laps don't clash
+    # distinct colours so the two traces don't clash
     right['steer']['col'].set(COLOURS[2])
     right['thr']['col'].set(COLOURS[3])
     right['yaw']['col'].set(COLOURS[5])
@@ -151,21 +193,20 @@ def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, s
         ax.clear()
         ax2.clear()
 
-        for ctrl, tag in ((left, "L1"), (right, "L2")):
-            lap = lap_labels.get(ctrl['lap_var'].get())
-            if lap is None:
+        for ctrl, tag in ((left, "T1"), (right, "T2")):
+            key = ctrl['lap_var'].get()
+            if key not in sources:
                 continue
-            lap_df = df[df['Lap'] == lap].reset_index(drop=True)
-            x = np.arange(len(lap_df)) * 0.01
 
             for name, label, col_name, _dc, _do, secondary in CHANNELS:
                 if not ctrl[name]['on'].get():
                     continue
-                y = smooth(lap_df[col_name].values, ctrl[name]['sm'].get())
+                y = smooth(get_series(key, col_name), ctrl[name]['sm'].get())
+                x = np.arange(len(y)) * 0.01
                 target = ax2 if secondary else ax
                 target.plot(x, y, color=ctrl[name]['col'].get(),
                             linewidth=ctrl[name]['w'].get(),
-                            linestyle="-" if secondary else "-",
+                            linestyle="-",
                             label=f"{tag} {label}")
 
         ax.set_xlabel("Time (s)")

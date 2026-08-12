@@ -1,6 +1,8 @@
+import os
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -29,8 +31,34 @@ def show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_f
 
     df['Time'] = df.groupby('Lap').cumcount() * 0.01
     laptimes = get_laptimes_dictionary(df)
-    lap_labels = {f"Lap {l} — {laptimes[l]:.2f}s": l for l in valid_laps}
-    lap_labels = {"All laps": None, **lap_labels}
+
+    # comparison run, if a df2.csv is present
+    df2 = None
+    if os.path.exists("df2.csv"):
+        try:
+            df2 = pd.read_csv("df2.csv")
+            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
+            valid_laps2 = sorted(df2['Lap'].unique())[1:-1]
+            laptimes2 = get_laptimes_dictionary(df2)
+        except Exception as e:
+            print("Could not use df2.csv:", e)
+            df2 = None
+
+    def fastest_laps(lt, n=5):
+        return [lap for lap, _ in sorted(lt.items(), key=lambda kv: kv[1])[:n]]
+
+    # label → (dataframe, [laps to pool])
+    sources = {"All laps": (df, valid_laps)}
+    for l in valid_laps:
+        sources[f"Lap {l} — {laptimes[l]:.2f}s"] = (df, [l])
+    sources["Top 5 Average"] = (df, fastest_laps(laptimes))
+    if df2 is not None:
+        sources["df2 All laps"] = (df2, valid_laps2)
+        for l in valid_laps2:
+            sources[f"df2 Lap {l} — {laptimes2[l]:.2f}s"] = (df2, [l])
+        sources["df2 Top 5 Average"] = (df2, fastest_laps(laptimes2))
+
+    lap_labels = sources          # kept name so the panels read the same
 
     COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
@@ -129,10 +157,8 @@ def show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_f
     toolbar.pack(side="bottom", fill="x")
 
     def subset(ctrl):
-        lap = lap_labels.get(ctrl['lap_var'].get())
-        if lap is None:                              # "All laps"
-            return df[df['Lap'].isin(valid_laps)]
-        return df[df['Lap'] == lap]
+        d, laps = sources[ctrl['lap_var'].get()]
+        return d[d['Lap'].isin(laps)]
 
     def draw():
         ax_s.clear()

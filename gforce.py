@@ -1,6 +1,8 @@
+import os
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -29,7 +31,18 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
 
     df['Time'] = df.groupby('Lap').cumcount() * 0.01
     laptimes = get_laptimes_dictionary(df)
-    lap_labels = {f"Lap {l} — {laptimes[l]:.2f}s": l for l in valid_laps}
+
+    # comparison run, if a df2.csv is present
+    df2 = None
+    if os.path.exists("df2.csv"):
+        try:
+            df2 = pd.read_csv("df2.csv")
+            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
+            valid_laps2 = sorted(df2['Lap'].unique())[1:-1]
+            laptimes2 = get_laptimes_dictionary(df2)
+        except Exception as e:
+            print("Could not use df2.csv:", e)
+            df2 = None
 
     COLOURS = ["#002AFF", "#D93A00", '#2E8B00', "#CA004A", "#600076", '#000000']
 
@@ -38,6 +51,21 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
         if w <= 1:
             return data
         return np.convolve(data, np.ones(w) / w, mode='same')
+
+    def fastest_laps(lt, n=5):
+        return [lap for lap, _ in sorted(lt.items(), key=lambda kv: kv[1])[:n]]
+
+    # ── dropdown sources: label → (dataframe, [laps], average?) ──
+    sources = {}
+    for l in valid_laps:
+        sources[f"Lap {l} — {laptimes[l]:.2f}s"] = (df, [l], False)
+    sources["Top 5 Average"] = (df, fastest_laps(laptimes), True)
+    if df2 is not None:
+        for l in valid_laps2:
+            sources[f"df2 Lap {l} — {laptimes2[l]:.2f}s"] = (df2, [l], False)
+        sources["df2 Top 5 Average"] = (df2, fastest_laps(laptimes2), True)
+
+    lap_labels = sources          # kept name so the panels read the same
 
     # channel key → (label, default colour, default on?)
     CHANNELS = (
@@ -55,6 +83,21 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
         if key == 'lat':   return ay_
         if key == 'vert':  return az_
         return np.sqrt(ax_ ** 2 + ay_ ** 2)      # total = combined horizontal g
+
+    def series_for(key, name):
+        d, laps, avg = sources[key]
+        if not avg:
+            lap_df = d[d['Lap'] == laps[0]].reset_index(drop=True)
+            return channel_data(lap_df, name)
+        # average across laps, resampling each to a common length by fraction of lap
+        arrs = [channel_data(d[d['Lap'] == lap].reset_index(drop=True), name)
+                for lap in laps]
+        length = int(np.median([len(a) for a in arrs]))
+        xnew = np.linspace(0, 1, length)
+        acc = np.zeros(length)
+        for a in arrs:
+            acc += np.interp(xnew, np.linspace(0, 1, len(a)), a)
+        return acc / len(arrs)
 
     outer = tk.Frame(root)
     outer.pack(fill="both", expand=True)
@@ -160,16 +203,15 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
 
         any_line = False
         for ctrl, tag, ls in ((left, "L1", "-"), (right, "L2", "--")):
-            lap = lap_labels.get(ctrl['lap_var'].get())
-            if lap is None:
+            key = ctrl['lap_var'].get()
+            if key not in sources:
                 continue
-            lap_df = df[df['Lap'] == lap].reset_index(drop=True)
-            x = np.arange(len(lap_df)) * 0.01
 
             for name, label, _, _ in CHANNELS:
                 if not ctrl[name]['on'].get():
                     continue
-                y = smooth(channel_data(lap_df, name), ctrl[name]['sm'].get())
+                y = smooth(series_for(key, name), ctrl[name]['sm'].get())
+                x = np.arange(len(y)) * 0.01
                 ax.plot(x, y, color=ctrl[name]['col'].get(),
                         linewidth=ctrl[name]['w'].get(), linestyle=ls,
                         label=f"{tag} {label}")
