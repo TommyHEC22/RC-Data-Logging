@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
 
-def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces):
+def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms):
     for w in root.winfo_children():
         w.destroy()
 
@@ -116,6 +116,15 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
 
         return np.percentile(ax, 90)          # forward-g ceiling on drive
 
+    dt = 0.01   # 100 Hz logging
+
+    steer_rate_series = np.abs(np.diff(df_laps['Steering'].to_numpy(float))) / dt
+    thr_diff = np.diff(df_laps['Throttle and brake'].to_numpy(float)) / dt
+
+    steering_rate  = np.percentile(steer_rate_series, 95)
+    throttle_up    = np.percentile(thr_diff[thr_diff > 0], 95)     # opening rate
+    throttle_down  = np.percentile(-thr_diff[thr_diff < 0], 95)    # closing rate
+
     throttle_centre = np.median(df_laps['Throttle and brake'])
 
     balance = yaw_balance(df_laps['Gyro Yaw'], df_laps['Acceleration Y'])
@@ -137,10 +146,11 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
                   padx=18, pady=6, cursor="hand2"
                   ).pack(side="left", padx=(12, 0), pady=8)
 
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces))
 
     body = tk.Frame(container)
     body.pack(side="top", fill="both", expand=True, padx=20, pady=20)
@@ -176,6 +186,9 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
         ("Balance",            f"{balance:.4f}"),
         ("Cornering Grip",     f"{corner:.4f}g"),
         ("Exit Drive",         f"{drive:.4f}g"),
+        ("Steering Rate",   f"{steering_rate:.0f} µs/s"),
+        ("Throttle Up",     f"{throttle_up:.0f} µs/s"),
+        ("Throttle Down",   f"{throttle_down:.0f} µs/s"),
     ]
 
     COLS = 5
