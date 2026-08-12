@@ -14,8 +14,11 @@ SPECS = [
     ("Average Lap",        "{:.2f}", "s",     "low"),
     ("Top 3 Average",      "{:.2f}", "s",     "low"),
     ("Top 5 Average",      "{:.2f}", "s",     "low"),
+    ("Top 10 Average",     "{:.2f}", "s",     "low"),
     ("Best 2 Consecutive", "{:.2f}", "s",     "low"),
     ("Bad Laps",           "{:.0f}", "",      "low"),
+    ("Average excluding bad laps", "{:.2f}", "s", "low"),
+    ("Predicted Clean Runtime",  None,         "",     None),
     ("Trend",              None,     "",      None),
     ("Balance",            "{:.4f}", "",      None),
     ("Cornering Grip",     "{:.4f}", "g",     "high"),
@@ -47,6 +50,8 @@ def compute_metrics(src):
     top3 = sum(t3) / len(t3)
     t5 = sorted(laptimes.values())[:5]
     top5 = sum(t5) / len(t5)
+    t10 = sorted(laptimes.values())[:10]
+    top10 = sum(t10) / len(t10)
 
     best2 = 1000.0
     lap_numbers = sorted(laptimes.keys())
@@ -67,8 +72,16 @@ def compute_metrics(src):
     else:
         trend = "Consistent"
 
+    goodaverage = sum(lappur.values()) / len(lappur)
+
     valid_laps = sorted(df['Lap'].unique())[1:-1]
     df_laps = df[df['Lap'].isin(valid_laps)]
+
+    def predicted_runtime(goodaverage):
+        laps = int(300 // goodaverage)
+        seconds = round(300 % goodaverage, 2)
+        predicted = str(laps) + "/5:" + str(seconds)
+        return predicted
 
     def yaw_balance(gyro_yaw, accel_y_g, w=15):
         yaw = np.convolve(np.asarray(gyro_yaw, float), np.ones(w) / w, 'same')
@@ -101,6 +114,7 @@ def compute_metrics(src):
     corner = cornering_grip(df_laps['Acceleration Y'], df_laps['Speed all'])
     drive = exit_drive(df_laps['Acceleration X'], df_laps['Throttle and brake'],
                        throttle_centre, df_laps['Acceleration Y'])
+    predictedruntime = predicted_runtime(goodaverage)
 
     return {
         'laptimes': laptimes,
@@ -108,6 +122,8 @@ def compute_metrics(src):
         "Average Lap": average,
         "Top 3 Average": top3,
         "Top 5 Average": top5,
+        "Top 10 Average": top10,
+        "Average excluding bad laps": goodaverage,
         "Best 2 Consecutive": best2,
         "Bad Laps": bad,
         "Trend": trend,
@@ -117,6 +133,7 @@ def compute_metrics(src):
         "Steering Rate": steer_rate,
         "Throttle Up": thr_up,
         "Throttle Down": thr_down,
+        "Predicted Clean Runtime": predictedruntime
     }
 
 
@@ -199,7 +216,7 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
     def fmt_val(fmt, unit, val):
         return fmt.format(val) + unit if fmt else str(val)
 
-    COLS = 5
+    COLS = 6
 
     # main run cards
     for i, (label, fmt, unit, _better) in enumerate(SPECS):
