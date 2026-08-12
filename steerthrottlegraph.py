@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-def show_steeringthrottle_graph(root, df, show_analysis):
+def show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle):
     for w in root.winfo_children():
         w.destroy()
 
@@ -38,9 +38,27 @@ def show_steeringthrottle_graph(root, df, show_analysis):
             return data
         return np.convolve(data, np.ones(w) / w, mode='same')
 
-    tk.Label(root, text="Steering & Throttle", font=("Segoe UI", 20)).pack(pady=10)
+    outer = tk.Frame(root)
+    outer.pack(fill="both", expand=True)
 
-    container = tk.Frame(root)
+    # ── top nav bar ──────────────────────────────────────
+    navbar = tk.Frame(outer, bg="#1e1e1e", height=52)
+    navbar.pack(side="top", fill="x")
+    navbar.pack_propagate(False)
+
+    def navbtn(text, cmd):
+        tk.Button(navbar, text=text, command=cmd,
+                  bg="#2d2d2d", fg="white",
+                  activebackground="#3d3d3d", activeforeground="white",
+                  relief="flat", bd=0, font=("Segoe UI", 11),
+                  padx=18, pady=6, cursor="hand2"
+                  ).pack(side="left", padx=(12, 0), pady=8)
+
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph))
+
+    container = tk.Frame(outer)
     container.pack(fill="both", expand=True)
 
     # ── one control panel per lap ────────────────────────────
@@ -154,4 +172,3 @@ def show_steeringthrottle_graph(root, df, show_analysis):
         ctrl['lap_var'].trace_add("write", lambda *_: draw())
 
     draw()
-    ttk.Button(root, text="Back", command=show_analysis).pack(pady=10)

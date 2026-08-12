@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
 
-def show_analysis(root, df, show_steeringthrottle_graph):
+def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle):
     for w in root.winfo_children():
         w.destroy()
 
@@ -125,7 +125,6 @@ def show_analysis(root, df, show_steeringthrottle_graph):
     container = tk.Frame(root)
     container.pack(fill="both", expand=True)
 
-    # ── top nav bar ──────────────────────────────────────
     navbar = tk.Frame(container, bg="#1e1e1e", height=52)
     navbar.pack(side="top", fill="x")
     navbar.pack_propagate(False)          # keep the 52px height
@@ -138,14 +137,13 @@ def show_analysis(root, df, show_steeringthrottle_graph):
                   padx=18, pady=6, cursor="hand2"
                   ).pack(side="left", padx=(12, 0), pady=8)
 
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph))
 
-    # ── body ─────────────────────────────────────────────
     body = tk.Frame(container)
     body.pack(side="top", fill="both", expand=True, padx=20, pady=20)
 
-    # laptimes bar (left)
     laptimes_box = tk.LabelFrame(body, text="Lap Times",
                                  font=("Segoe UI", 12, "bold"), padx=10, pady=6)
     laptimes_box.pack(side="left", fill="y", padx=(0, 20))
@@ -154,7 +152,6 @@ def show_analysis(root, df, show_steeringthrottle_graph):
         tk.Label(laptimes_box, text=f"Lap {lap}: {t:.2f}s",
                  font=("Segoe UI", 11)).pack(anchor="w", padx=10, pady=3)
 
-    # stats cards (middle)
     stats_area = tk.Frame(body)
     stats_area.pack(side="left", fill="both", expand=True)
 
@@ -184,6 +181,5 @@ def show_analysis(root, df, show_steeringthrottle_graph):
     for i, (title, value) in enumerate(stats):
         stat_card(title, value, i // COLS, i % COLS)
 
-    # equal-width columns; NO row weights so cards sit at the top
     for c in range(COLS):
         stats_area.columnconfigure(c, weight=1, uniform="stat")
