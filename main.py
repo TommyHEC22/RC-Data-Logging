@@ -14,6 +14,7 @@ from histograms import show_histograms
 from comparedata import show_load_df2
 from saverun import show_save_run
 from laptimechart import show_laptime_chart
+from choose import show_channel_plot
 
 root = tk.Tk()
 root.state("zoomed")
@@ -48,6 +49,7 @@ def build_navbar(parent):
     navbtn("Friction Circle", lambda: nav(show_friction_circle, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_laptime_chart))
     navbtn("G-Forces", lambda: nav(show_gforces, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_laptime_chart))
     navbtn("Histograms", lambda: nav(show_histograms, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_laptime_chart))
+    navbtn("Custom Plot", lambda: nav(show_channel_plot, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_laptime_chart))
     navbtn("Save Run", lambda: nav(show_save_run, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart))
 
     return navbar
@@ -88,7 +90,7 @@ def quickload_old_data():
         file = easygui.fileopenbox()
         df = pd.read_csv(file)
         print("Loaded" if len(df) > 100 else "Under 100 rows")
-        show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart)
+        show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot)
     except Exception as e:
         print("Error loading file:", e)
 
@@ -99,7 +101,7 @@ def load_new_data():
         file = easygui.fileopenbox()
         df = pd.read_csv(convert_file_to_csv(file))
         print("Loaded" if len(df) > 100 else "Under 100 rows")
-        show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart)
+        show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot)
     except Exception as e:
         print("Error loading file:", e)
 
