@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from macsafe import make_navbtn, force_light_mode
 from tkinter import ttk
 import numpy as np
 import pandas as pd
@@ -9,37 +10,57 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
-def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot):
+def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
 
     # ── lap times ────────────────────────────────────────────
-    valid_laps = sorted(df['Lap'].unique())[1:-1]
+    def prepare(d):
+        """Add a Time column (seconds elapsed within each lap) and work out
+        lap times. Returns (valid_laps, laptimes, full_run).
 
-    def get_laptimes_dictionary(df):
-        laps = df.groupby('Lap')
-        laptimes = {}
-        for lap in laps:
-            lap_num = lap[0]
-            end = lap[1].iloc[-1]['Time']
-            start = lap[1].iloc[0]['Time']
-            laptimes[lap_num] = float(end - start)
-        del laptimes[min(laptimes.keys())]
-        del laptimes[max(laptimes.keys())]
-        return laptimes
+        If the lap trigger never fired, the whole run is kept as a single
+        block so the data is still viewable - full_run is then True.
+        """
+        if 'Timestamp' in d.columns:
+            t = d['Timestamp'].astype(float) / 1000
+            if not t.is_monotonic_increasing:
+                t = t.cummax()          # logger occasionally steps backwards
+        else:
+            t = pd.Series(np.arange(len(d)) * 0.01, index=d.index)
 
-    df['Time'] = df.groupby('Lap').cumcount() * 0.01
-    laptimes = get_laptimes_dictionary(df)
+        d['Time'] = t - t.groupby(d['Lap']).transform('first')
+
+        # Measured start-of-lap to start-of-next-lap, so the gap between the
+        # last sample of one lap and the first of the next isn't lost.
+        starts = t.groupby(d['Lap']).first()
+        laptimes = (starts.shift(-1) - starts).dropna()
+
+        # The final lap has no closing trigger, so its duration is unknown.
+        laptimes = laptimes.drop(index=d['Lap'].iloc[-1], errors='ignore')
+
+        # Lap 0 is the out lap - it starts when logging starts, not at the line.
+        if len(laptimes) > 1:
+            laptimes = laptimes.drop(index=laptimes.index[0])
+
+        laptimes = {int(k): float(v) for k, v in laptimes.items()}
+
+        full_run = not laptimes
+        if full_run:
+            only = int(d['Lap'].iloc[0])
+            laptimes = {only: float(t.iloc[-1] - t.iloc[0])}
+
+        return sorted(laptimes), laptimes, full_run
+
+    valid_laps, laptimes, full_run = prepare(df)
 
     # comparison run, if a df2.csv is present
     df2 = None
     if os.path.exists("df2.csv"):
         try:
             df2 = pd.read_csv("df2.csv")
-            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
-            valid_laps2 = sorted(df2['Lap'].unique())[1:-1]
-            laptimes2 = get_laptimes_dictionary(df2)
+            valid_laps2, laptimes2, full_run2 = prepare(df2)
         except Exception as e:
             print("Could not use df2.csv:", e)
             df2 = None
@@ -55,15 +76,21 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
     def fastest_laps(lt, n=5):
         return [lap for lap, _ in sorted(lt.items(), key=lambda kv: kv[1])[:n]]
 
+    def label_for(lap, lt, is_full_run, prefix=""):
+        name = "Full Run" if is_full_run else f"Lap {lap}"
+        return f"{prefix}{name} — {lt[lap]:.2f}s"
+
     # ── dropdown sources: label → (dataframe, [laps], average?) ──
     sources = {}
     for l in valid_laps:
-        sources[f"Lap {l} — {laptimes[l]:.2f}s"] = (df, [l], False)
-    sources["Top 5 Average"] = (df, fastest_laps(laptimes), True)
+        sources[label_for(l, laptimes, full_run)] = (df, [l], False)
+    if not full_run:
+        sources["Top 5 Average"] = (df, fastest_laps(laptimes), True)
     if df2 is not None:
         for l in valid_laps2:
-            sources[f"df2 Lap {l} — {laptimes2[l]:.2f}s"] = (df2, [l], False)
-        sources["df2 Top 5 Average"] = (df2, fastest_laps(laptimes2), True)
+            sources[label_for(l, laptimes2, full_run2, "df2 ")] = (df2, [l], False)
+        if not full_run2:
+            sources["df2 Top 5 Average"] = (df2, fastest_laps(laptimes2), True)
 
     lap_labels = sources          # kept name so the panels read the same
 
@@ -85,19 +112,22 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
         return np.sqrt(ax_ ** 2 + ay_ ** 2)      # total = combined horizontal g
 
     def series_for(key, name):
+        """Return (x_seconds, y) for a dropdown selection."""
         d, laps, avg = sources[key]
         if not avg:
             lap_df = d[d['Lap'] == laps[0]].reset_index(drop=True)
-            return channel_data(lap_df, name)
+            return lap_df['Time'].to_numpy(float), channel_data(lap_df, name)
+
         # average across laps, resampling each to a common length by fraction of lap
-        arrs = [channel_data(d[d['Lap'] == lap].reset_index(drop=True), name)
-                for lap in laps]
+        lap_dfs = [d[d['Lap'] == lap].reset_index(drop=True) for lap in laps]
+        arrs = [channel_data(ld, name) for ld in lap_dfs]
         length = int(np.median([len(a) for a in arrs]))
         xnew = np.linspace(0, 1, length)
         acc = np.zeros(length)
         for a in arrs:
             acc += np.interp(xnew, np.linspace(0, 1, len(a)), a)
-        return acc / len(arrs)
+        duration = float(np.median([ld['Time'].iloc[-1] for ld in lap_dfs]))
+        return np.linspace(0, duration, length), acc / len(arrs)
 
     outer = tk.Frame(root)
     outer.pack(fill="both", expand=True)
@@ -108,23 +138,19 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
     navbar.pack_propagate(False)
 
     def navbtn(text, cmd):
-        tk.Button(navbar, text=text, command=cmd,
-                  bg="#2d2d2d", fg="white",
-                  activebackground="#3d3d3d", activeforeground="white",
-                  relief="flat", bd=0, font=("Segoe UI", 11),
-                  padx=18, pady=6, cursor="hand2"
-                  ).pack(side="left", padx=(12, 0), pady=8)
+        make_navbtn(navbar, text, cmd)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart))
-    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot))
+    navbtn("Prep Data", lambda: show_prep_data(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot, show_prep_data))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_prep_data))
+    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot, show_prep_data))
 
     container = tk.Frame(outer)
     container.pack(fill="both", expand=True)
@@ -212,8 +238,8 @@ def show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_fric
             for name, label, _, _ in CHANNELS:
                 if not ctrl[name]['on'].get():
                     continue
-                y = smooth(series_for(key, name), ctrl[name]['sm'].get())
-                x = np.arange(len(y)) * 0.01
+                x, y = series_for(key, name)
+                y = smooth(y, ctrl[name]['sm'].get())
                 ax.plot(x, y, color=ctrl[name]['col'].get(),
                         linewidth=ctrl[name]['w'].get(), linestyle=ls,
                         label=f"{tag} {label}")

@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from macsafe import make_navbtn, force_light_mode
 from tkinter import ttk
 import numpy as np
 import pandas as pd
@@ -19,7 +20,6 @@ SPECS = [
     ("Bad Laps",           "{:.0f}", "",      "low"),
     ("Average excluding bad laps", "{:.2f}", "s", "low"),
     ("Predicted Clean Runtime",  None,         "",     None),
-    ("Trend",              None,     "",      None),
     ("Balance",            "{:.4f}", "",      None),
     ("Cornering Grip",     "{:.4f}", "g",     "high"),
     ("Exit Drive",         "{:.4f}", "g",     "high"),
@@ -29,19 +29,48 @@ SPECS = [
 ]
 
 
+def compute_laptimes(src):
+    """Lap times in seconds, keyed by lap number.
+
+    Single source of truth for how a lap is timed, shared with every page so
+    the whole app agrees with the Analysis figures: the gap from the start of
+    one lap to the start of the next, taken from the real Timestamp, with the
+    out lap and the unfinished final lap dropped.
+    """
+    df = src.copy().reset_index(drop=True)
+
+    synthetic = df['Lap'].nunique() == 1
+    if synthetic:
+        edges = np.linspace(0, len(df), 5).astype(int)
+        df['Lap'] = np.searchsorted(edges[1:-1], df.index, side='right')
+
+    t = df['Timestamp'].astype(float) / 1000
+    if not t.is_monotonic_increasing:
+        t = t.cummax()
+
+    starts = t.groupby(df['Lap']).first()
+    laptimes = (starts.shift(-1) - starts).dropna()
+    laptimes = laptimes.drop(index=df['Lap'].iloc[-1], errors='ignore')
+    if not synthetic and len(laptimes) > 1:
+        laptimes = laptimes.drop(index=laptimes.index[0])
+    return laptimes.to_dict()
+
+
 def compute_metrics(src):
     """All the analysis figures for one run, including the lap-times dict."""
-    df = src.copy()
-    df['Time'] = df.groupby('Lap').cumcount() * 0.01
+    df = src.copy().reset_index(drop=True)
 
-    laps = df.groupby('Lap')
-    laptimes = {}
-    for lap in laps:
-        end = lap[1].iloc[-1]['Time']
-        start = lap[1].iloc[0]['Time']
-        laptimes[lap[0]] = float(end - start)
-    del laptimes[min(laptimes.keys())]
-    del laptimes[max(laptimes.keys())]
+    synthetic = df['Lap'].nunique() == 1
+    if synthetic:
+        edges = np.linspace(0, len(df), 5).astype(int)
+        df['Lap'] = np.searchsorted(edges[1:-1], df.index, side='right')
+
+    t = df['Timestamp'].astype(float) / 1000
+    if not t.is_monotonic_increasing:
+        t = t.cummax()
+    df['Time'] = t - t.groupby(df['Lap']).transform('first')
+
+    laptimes = compute_laptimes(src)
 
     fastest = min(laptimes.values())
     average = sum(laptimes.values()) / len(laptimes)
@@ -63,24 +92,26 @@ def compute_metrics(src):
     bad = sum(1 for l in lap_numbers if laptimes[l] > fastest + 1.0)
 
     lappur = {l: t for l, t in laptimes.items() if t <= fastest + 1.0}
-    slope, _ = np.polyfit(np.array(list(lappur.keys())),
-                          np.array(list(lappur.values())), 1)
-    if slope < -0.05:
-        trend = "Improving"
-    elif slope > 0.05:
-        trend = "Dropping off"
-    else:
-        trend = "Consistent"
 
     goodaverage = sum(lappur.values()) / len(lappur)
 
-    valid_laps = sorted(df['Lap'].unique())[1:-1]
-    df_laps = df[df['Lap'].isin(valid_laps)]
+    df_laps = df[df['Lap'].isin(lappur.keys())]
 
     def predicted_runtime(goodaverage):
-        laps = int(300 // goodaverage)
-        seconds = round(300 % goodaverage, 2)
-        predicted = str(laps) + "/5:" + str(seconds)
+        toge = True
+        a = goodaverage
+        count = 1
+        while toge:
+            if a > 300:
+                toge = False
+            else:
+                count = count + 1
+                a = a + goodaverage
+
+        a = a - 300
+
+        predicted = f"{count}/5:{a:.2f}"
+
         return predicted
 
     def yaw_balance(gyro_yaw, accel_y_g, w=15):
@@ -90,18 +121,24 @@ def compute_metrics(src):
         s, _ = np.polyfit(ay[mask], yaw[mask], 1)
         return s
 
-    def cornering_grip(accel_y_g, speed_kmh=None, w=15):
+    def cornering_grip(accel_y_g, w=15):
         ay = np.convolve(np.abs(np.asarray(accel_y_g, float)), np.ones(w) / w, 'same')
         mask = ay > 0.2
-        if speed_kmh is not None:
-            mask &= np.asarray(speed_kmh) > 5
         return np.percentile(ay[mask], 90)
 
-    def exit_drive(accel_x_g, throttle_us, throttle_centre, accel_y_g, w=15):
+    def exit_drive(accel_x_g, throttle_pct, steering_pct, w=15):
+        # on throttle (> 5%) with the wheel roughly straight (|steer| < 20%)
         ax = np.convolve(np.abs(np.asarray(accel_x_g, float)), np.ones(w) / w, 'same')
-        thr = np.asarray(throttle_us, float) - throttle_centre
-        mask = (thr > 0) & (np.abs(np.asarray(accel_y_g)) < 0.6)
+        thr = np.asarray(throttle_pct, float)
+        steer = np.asarray(steering_pct, float)
+        mask = (thr > 5) & (np.abs(steer) < 20)
         return np.percentile(ax[mask], 90)
+
+    bump = []
+    for lap in lappur:
+        z = df[df['Lap'] == lap]['Acceleration Z'].std()
+        bump.append(z)
+    std = sum(bump) / len(bump)
 
     dt = 0.01
     steer_rate = np.percentile(np.abs(np.diff(df_laps['Steering'].to_numpy(float))) / dt, 95)
@@ -109,11 +146,10 @@ def compute_metrics(src):
     thr_up = np.percentile(thr_diff[thr_diff > 0], 95)
     thr_down = np.percentile(-thr_diff[thr_diff < 0], 95)
 
-    throttle_centre = np.median(df_laps['Throttle and brake'])
     balance = yaw_balance(df_laps['Gyro Yaw'], df_laps['Acceleration Y'])
-    corner = cornering_grip(df_laps['Acceleration Y'], df_laps['Speed all'])
+    corner = cornering_grip(df_laps['Acceleration Y'])
     drive = exit_drive(df_laps['Acceleration X'], df_laps['Throttle and brake'],
-                       throttle_centre, df_laps['Acceleration Y'])
+                       df_laps['Steering'])
     predictedruntime = predicted_runtime(goodaverage)
 
     return {
@@ -126,7 +162,6 @@ def compute_metrics(src):
         "Average excluding bad laps": goodaverage,
         "Best 2 Consecutive": best2,
         "Bad Laps": bad,
-        "Trend": trend,
         "Balance": balance,
         "Cornering Grip": corner,
         "Exit Drive": drive,
@@ -137,7 +172,21 @@ def compute_metrics(src):
     }
 
 
-def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot):
+def read_comment_file(path):
+    """Plain-text run comment stashed next to the data ('' if missing/empty).
+
+    main.py writes the main run's comment to comment_main.txt on load; comment.txt
+    holds the comparison run's comment (written by the Comparison Run page and when
+    a run is pushed into the df2 slot).
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
@@ -161,40 +210,52 @@ def show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, s
     navbar.pack_propagate(False)
 
     def navbtn(text, cmd):
-        tk.Button(navbar, text=text, command=cmd,
-                  bg="#2d2d2d", fg="white",
-                  activebackground="#3d3d3d", activeforeground="white",
-                  relief="flat", bd=0, font=("Segoe UI", 11),
-                  padx=18, pady=6, cursor="hand2"
-                  ).pack(side="left", padx=(12, 0), pady=8)
+        make_navbtn(navbar, text, cmd)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart))
-    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot))
+    navbtn("Prep Data", lambda: show_prep_data(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot, show_prep_data))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_prep_data))
+    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot, show_prep_data))
 
     body = tk.Frame(container)
     body.pack(side="top", fill="both", expand=True, padx=20, pady=20)
 
-    # ── main run lap times (left) ────────────────────────
-    laptimes_box = tk.LabelFrame(body, text="Lap Times (Main)",
+    # ── main run: comment (top) + lap times (left) ───────
+    main_col = tk.Frame(body)
+    main_col.pack(side="left", fill="y", padx=(0, 20))
+
+    main_comment = read_comment_file("comment_main.txt")
+    if main_comment:
+        tk.Label(main_col, text=main_comment, font=("Segoe UI", 10, "italic"),
+                 fg="#555", wraplength=230, justify="left").pack(anchor="w", pady=(0, 6))
+
+    laptimes_box = tk.LabelFrame(main_col, text="Lap Times (Main)",
                                  font=("Segoe UI", 12, "bold"), padx=10, pady=6)
-    laptimes_box.pack(side="left", fill="y", padx=(0, 20))
+    laptimes_box.pack(fill="y")
     for lap, t in ma['laptimes'].items():
         tk.Label(laptimes_box, text=f"Lap {lap}: {t:.2f}s",
                  font=("Segoe UI", 11)).pack(anchor="w", padx=10, pady=3)
 
-    # ── comparison run lap times (right) ─────────────────
+    # ── comparison run: comment (top) + lap times (right) ─
     if mb is not None:
-        df2_box = tk.LabelFrame(body, text="Lap Times (df2)",
+        df2_col = tk.Frame(body)
+        df2_col.pack(side="right", fill="y", padx=(20, 0))
+
+        df2_comment = read_comment_file("comment.txt")
+        if df2_comment:
+            tk.Label(df2_col, text=df2_comment, font=("Segoe UI", 10, "italic"),
+                     fg="#555", wraplength=230, justify="left").pack(anchor="w", pady=(0, 6))
+
+        df2_box = tk.LabelFrame(df2_col, text="Lap Times (df2)",
                                 font=("Segoe UI", 12, "bold"), padx=10, pady=6)
-        df2_box.pack(side="right", fill="y", padx=(20, 0))
+        df2_box.pack(fill="y")
         for lap, t in mb['laptimes'].items():
             tk.Label(df2_box, text=f"Lap {lap}: {t:.2f}s",
                      font=("Segoe UI", 11)).pack(anchor="w", padx=10, pady=3)

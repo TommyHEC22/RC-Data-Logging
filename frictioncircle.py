@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from macsafe import make_navbtn, force_light_mode
 from tkinter import ttk
 import numpy as np
 import pandas as pd
@@ -7,38 +8,25 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from analysis import compute_laptimes
 
 
-def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot):
+def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data):
     root.state("zoomed")
     for w in root.winfo_children():
         w.destroy()
 
     # ── lap times (for the selector labels) ──────────────────
     valid_laps = sorted(df['Lap'].unique())[1:-1]
-
-    def get_laptimes_dictionary(df):
-        laps = df.groupby('Lap')
-        laptimes = {}
-        for lap in laps:
-            end = lap[1].iloc[-1]['Time']
-            start = lap[1].iloc[0]['Time']
-            laptimes[lap[0]] = float(end - start)
-        del laptimes[min(laptimes.keys())]
-        del laptimes[max(laptimes.keys())]
-        return laptimes
-
-    df['Time'] = df.groupby('Lap').cumcount() * 0.01
-    laptimes = get_laptimes_dictionary(df)
+    laptimes = compute_laptimes(df)
 
     # comparison run laps, if a df2.csv is present
     df2 = None
     if os.path.exists("df2.csv"):
         try:
             df2 = pd.read_csv("df2.csv")
-            df2['Time'] = df2.groupby('Lap').cumcount() * 0.01
             valid_laps2 = sorted(df2['Lap'].unique())[1:-1]
-            laptimes2 = get_laptimes_dictionary(df2)
+            laptimes2 = compute_laptimes(df2)
         except Exception as e:
             print("Could not use df2.csv:", e)
             df2 = None
@@ -69,23 +57,19 @@ def show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, s
     navbar.pack_propagate(False)
 
     def navbtn(text, cmd):
-        tk.Button(navbar, text=text, command=cmd,
-                  bg="#2d2d2d", fg="white",
-                  activebackground="#3d3d3d", activeforeground="white",
-                  relief="flat", bd=0, font=("Segoe UI", 11),
-                  padx=18, pady=6, cursor="hand2"
-                  ).pack(side="left", padx=(12, 0), pady=8)
+        make_navbtn(navbar, text, cmd)
 
     navbtn("Load Data", lambda: show_loader())
-    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot))
-    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
-    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart))
-    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot))
+    navbtn("Prep Data", lambda: show_prep_data(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot))
+    navbtn("Comparison Run", lambda: show_load_df2(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Analysis", lambda: show_analysis(root, df, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Lap Times", lambda: show_laptime_chart(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_channel_plot, show_prep_data))
+    navbtn("Steering & Throttle", lambda: show_steeringthrottle_graph(root, df, show_analysis, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Friction Circle", lambda: show_friction_circle(root, df, show_analysis, show_steeringthrottle_graph, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("G-Forces", lambda: show_gforces(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Histograms", lambda: show_histograms(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_channel_plot, show_prep_data))
+    navbtn("Custom Plot", lambda: show_channel_plot(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_save_run, show_laptime_chart, show_prep_data))
+    navbtn("Save Run", lambda: show_save_run(root, df, show_analysis, show_steeringthrottle_graph, show_friction_circle, show_gforces, show_histograms, show_loader, show_load_df2, show_laptime_chart, show_channel_plot, show_prep_data))
 
     container = tk.Frame(outer)
     container.pack(fill="both", expand=True)

@@ -1,0 +1,13 @@
+FrontendDesign/
+.venv/
+dist/
+DATA35.clf
+DATA70.clf
+DATA70.csv
+main.spec
+Testlogger Analyzer Laps.spec
+TestloggerAnalyzer.spec
+build/
+dist/
+.DS_Store
+__pycache__/
