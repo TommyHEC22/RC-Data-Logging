@@ -12,7 +12,7 @@ def convert_file_to_csv(filepath):
 
     # ── paths ──────────────────────────────────────────────────────────────────────
     INPUT_FILE  = filepath
-    OUTPUT_FILE = os.path.splitext(filepath)[0] + '.csv'
+    OUTPUT_FILE = 'df.csv'
 
     # ── CLF format notes ───────────────────────────────────────────────────────────
     # Header: 16 bytes (magic "TLLOG\0" + version + padding)
